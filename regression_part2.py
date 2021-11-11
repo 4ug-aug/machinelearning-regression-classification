@@ -6,8 +6,8 @@ from sklearn import model_selection
 from init import import_dataset
 from sklearn.metrics import mean_squared_error
 import torch
-from tqdm import tqdm
 import pandas as pd
+import scipy.stats as st
 
 def draw_neural_net(weights, biases, tf, 
                     attribute_names = None,
@@ -299,7 +299,7 @@ overall_hidden_layers = []
 #############################################
 
 #############################################
-#       BASELINE MODEL PARAMETERS             #
+#       BASELINE MODEL PARAMETERS           #
 # Here we determine the range for our regulisation term Lambda.
 overall_test_errors_baseline = {}
 #############################################
@@ -333,7 +333,7 @@ for train_index1, test_index1 in CV.split(X,y):
     # We Optimise the lambda and h (hidden layers) in this part of the crossvalidation
     # When we have found the optimal parameters we use those parameters on the first level cross validation
     # to find the optimal model.
-    for train_index2, test_index2 in CV2.split(X,y):
+    for train_index2, test_index2 in CV2.split(X_train_first_level,y_train_first_level):
         idx2 += 1
 
         print(f"Outer Level: {idx}, inner level Cross Validation split: {idx2}")
@@ -445,19 +445,60 @@ for train_index1, test_index1 in CV.split(X,y):
     mse_baseline = mean_squared_error(y_pred, y_test_first_level)
     overall_test_errors_baseline[idx] = mse_baseline
 
-    results_df.loc[idx-1] = [idx] + [opt_hidden_layer] + [np.mean(mse)] + [opt_lambda] + [err_linear] + [mse_baseline]
+    results_df.loc[idx-1] = [idx] + [opt_hidden_layer] + [round(np.mean(mse),3)] + [round(opt_lambda,3)] + [round(err_linear,3)] + [round(mse_baseline,3)]
+
+
+#############################################
+#             COMPARE MODELS                #
+#############################################
+
+z_baseline = np.asarray(list(overall_test_errors_baseline.values()))
+z_neural_net = np.asarray(list(overall_test_errors_nn.values()))
+z_linear = np.asarray(list(overall_test_errors_linear.values()))
+    
+z1 = z_neural_net - z_linear
+z2 = z_neural_net - z_baseline
+z3 = z_linear - z_baseline
+
+conf_z1 = st.t.interval(alpha=0.95, df=len(z1)-1, loc=np.mean(z1), scale=st.sem(z1))
+conf_z2 = st.t.interval(alpha=0.95, df=len(z2)-1, loc=np.mean(z2), scale=st.sem(z2)) 
+conf_z3 = st.t.interval(alpha=0.95, df=len(z3)-1, loc=np.mean(z3), scale=st.sem(z3)) 
+
+print(f"z1 confidence interval: {conf_z1}, p-value: {2*st.t.cdf(-np.abs(np.mean(z1)) / st.sem(z1), df=len(z1) - 1)}")
+print(f"z2 confidence interval: {conf_z2}, p-value: {2*st.t.cdf(-np.abs(np.mean(z2)) / st.sem(z2), df=len(z2) - 1)}")
+print(f"z3 confidence interval: {conf_z3}, p-value: {2*st.t.cdf(-np.abs(np.mean(z3)) / st.sem(z3), df=len(z3) - 1)}")
+
+print()
 
 color_list = ['tab:orange', 'tab:green', 'tab:purple', 'tab:brown', 'tab:pink',
               'tab:gray', 'tab:olive', 'tab:cyan', 'tab:red', 'tab:blue']
 
 print(results_df.to_latex(index=False))
 
-# Display the MSE across folds
+# Display the MSE across folds NN
 plt.bar(np.arange(1, K+1), np.squeeze(np.asarray(list(overall_test_errors_nn.values()))), color=color_list)
 plt.xlabel('Fold')
 plt.xticks(np.arange(1, K+1))
 plt.ylabel('MSE')
-plt.title('Test mean-squared-error')
+plt.title('Test mean-squared-error for the Neural Net')
+
+plt.show()
+
+# Display the MSE across folds Linear
+plt.bar(np.arange(1, K+1), np.squeeze(np.asarray(list(overall_test_errors_linear.values()))), color=color_list)
+plt.xlabel('Fold')
+plt.xticks(np.arange(1, K+1))
+plt.ylabel('MSE')
+plt.title('Test mean-squared-error for the Linear model')
+
+plt.show()
+
+# Display the MSE across folds Baseline
+plt.bar(np.arange(1, K+1), np.squeeze(np.asarray(list(overall_test_errors_baseline.values()))), color=color_list)
+plt.xlabel('Fold')
+plt.xticks(np.arange(1, K+1))
+plt.ylabel('MSE')
+plt.title('Test mean-squared-error for the Baseline model')
 
 plt.show()
 

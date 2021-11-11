@@ -84,10 +84,17 @@ for train_index, test_index in CV.split(X,y):
     y_train_est_outer = mdl_original.predict(X_train_outer).T
     y_test_est_outer = mdl_original.predict(X_test_outer).T
     # Add the test_error_rate to the overall test_error_rate so we can calculate the generalisation error in the end.
-    overall_test_errors[idx] = mean_squared_error(y_test_est_outer, y_test_outer)
+    overall_test_errors[opt_lambda] = mean_squared_error(y_test_est_outer, y_test_outer)
 
     predictions.append(y_test_est_outer.tolist())
 
+print(overall_test_errors)
 mean_overall_error = sum(overall_test_errors.values()) / len(overall_test_errors.values())
 print(f"Mean Overall MSError (Generalisation Error): {mean_overall_error}")
 
+# Display the learning curve for the best net in the current fold
+plt.plot(overall_optimal_lambdas.keys(),overall_test_errors.values())
+plt.xlabel('Lambdas')
+plt.ylabel('MSE')
+plt.title('MSE over Lambdas')
+plt.show()
