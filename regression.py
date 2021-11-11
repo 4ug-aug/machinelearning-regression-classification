@@ -58,6 +58,7 @@ for train_index, test_index in CV.split(X,y):
     X_train_inner, X_test_inner, y_train_inner, y_test_inner = train_test_split(X_train_outer, y_train_outer, train_size=0.75)
 
     test_error_rate = np.zeros(len(lambda_interval))
+    train_error_rate = np.zeros(len(lambda_interval))
 
 
     for k in range(0, len(lambda_interval)):
@@ -66,9 +67,10 @@ for train_index, test_index in CV.split(X,y):
         mdl.fit(X_train_inner, y_train_inner)
 
         y_test_est = mdl.predict(X_test_inner).T
+        y_train_est = mdl.predict(X_train_inner).T
         
         test_error_rate[k] = mean_squared_error(y_test_est, y_test_inner)
-
+        train_error_rate[k] = mean_squared_error(y_train_est, y_train_inner)
 
     min_error = np.min(test_error_rate)
     opt_lambda_idx = np.argmin(test_error_rate)
@@ -88,13 +90,15 @@ for train_index, test_index in CV.split(X,y):
 
     predictions.append(y_test_est_outer.tolist())
 
+    if idx == K-1:
+        plt.title('Optimal lambda: 1e{0}'.format(opt_lambda))
+        plt.loglog(lambda_interval,train_error_rate,'b.-',lambda_interval,test_error_rate,'r.-')
+        plt.xlabel('Regularization factor')
+        plt.ylabel('Squared error (crossvalidation)')
+        plt.legend(['Train error','Validation error'])
+        plt.grid()
+        plt.show()
+
 print(overall_test_errors)
 mean_overall_error = sum(overall_test_errors.values()) / len(overall_test_errors.values())
 print(f"Mean Overall MSError (Generalisation Error): {mean_overall_error}")
-
-# Display the learning curve for the best net in the current fold
-plt.plot(overall_optimal_lambdas.keys(),overall_test_errors.values())
-plt.xlabel('Lambdas')
-plt.ylabel('MSE')
-plt.title('MSE over Lambdas')
-plt.show()
