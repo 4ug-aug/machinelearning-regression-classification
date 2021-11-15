@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn import model_selection
 from init import import_dataset
@@ -8,6 +8,8 @@ from sklearn.metrics import mean_squared_error
 import torch
 import pandas as pd
 import scipy.stats as st
+from math import ceil
+import scipy
 
 def draw_neural_net(weights, biases, tf, 
                     attribute_names = None,
@@ -256,7 +258,7 @@ df = import_dataset(2016)
 attributeNames = ['Economy', 'Family', 'Health', 'Freedom', 'Trust', 'Generosity', 'Dystopia Residual']
 
 # Binary target value
-y = df['Happiness Score']
+y = df['Happy']
 X = df[['Economy', 'Family', 'Health', 'Freedom', 'Trust', 'Generosity', 'Dystopia Residual']].copy()
 
 # Standardize the training and test set based on training set mean and std
@@ -280,9 +282,9 @@ CV2 = model_selection.KFold(K,shuffle=True)
 #############################################
 #       LINEAR MODEL PARAMETERS             #
 # Here we determine the range for our regulisation term Lambda.
-lambda_interval = np.logspace(-3, 5, 50)
+lambda_interval = np.logspace(-3, 2, 50)
 overall_optimal_lambdas = {}
-overall_test_errors_linear = {}
+overall_test_errors_logistic = {}
 #############################################
 
 #############################################
@@ -292,7 +294,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print('Using device:', device)
 print()
 n_hidden_units_interval = range(1,10)
-loss_fn = torch.nn.MSELoss()
+loss_fn = torch.nn.BCELoss()
 num_epoch = 550
 overall_test_errors_nn = {}
 overall_hidden_layers = []
@@ -313,6 +315,8 @@ print("Starting...")
 print("Initialising Pandas Dataframe for optimal Lambdas, Hidden layers and respective results")
 
 results_df = pd.DataFrame(columns = ["Outer Fold", "\(h_i^*\)", "\(E_{i,h^*}^{test}\)","\(\lambda_i^*\)", "\(E_\{i,\lambda^*\}^{test}\)", "E_{i,base}^{test}"])
+
+stats_df = pd.DataFrame( columns = ["Outer Fold", "ANN vs Baseline", "ANN vs Logistic", "Baseline vs Logistic"])
 
 for train_index1, test_index1 in CV.split(X,y):
     idx += 1
@@ -356,13 +360,13 @@ for train_index1, test_index1 in CV.split(X,y):
 
         # Loop over lambda_interval values
         for k in range(0, len(lambda_interval)):
-            mdl = Ridge(alpha=lambda_interval[k] )
+            mdl = LogisticRegression(penalty='l2', C=1/lambda_interval[k] )
 
             mdl.fit(X_train_inner, y_train_inner)
 
             y_test_est = mdl.predict(X_test_inner).T
             
-            test_error_rate[k] = mean_squared_error(y_test_est, y_test_inner)
+            test_error_rate[k] = np.sum(y_test_est != y_test_inner) / len(y_test_est)
 
         opt_lambda_idx = np.argmin(test_error_rate)
         opt_lambda = lambda_interval[opt_lambda_idx]
@@ -375,6 +379,7 @@ for train_index1, test_index1 in CV.split(X,y):
                     # 1st transfer function, either Tanh or ReLU:
                     torch.nn.Tanh(),                            #torch.nn.ReLU(),
                     torch.nn.Linear(n_hidden_units_interval[j], 1), # H hidden units to 1 output neuron
+                    torch.nn.Sigmoid()
                     )
 
             # print('Training model of type:\n{}\n'.format(str(nn_model())))
@@ -385,16 +390,18 @@ for train_index1, test_index1 in CV.split(X,y):
                                                             y=y_train_second_level_torch,
                                                             num_epoch=num_epoch)
             # print('\n\tBest loss: {} for amount of hidden layers: {}\n'.format(final_loss_inner,n_hidden_units_interval[j]))
-
-            # Determine estimated class labels for test set
-            y_test_est_inner_nn = net(X_test_second_level_torch)
-
-            # Determine errors and errors
-            se = (y_test_est_inner_nn.float()-y_test_second_level_torch.float())**2 # squared error
-            mse = (sum(se).type(torch.float)/len(y_test_second_level_torch)).data.numpy() #mean
-            # We save the final loss for the model with this hidden level
-            test_error_rate_nn[j] = np.mean(mse) # store error rate for current CV fold 
             
+            # Determine estimated class labels for test set
+            y_test_est_inner_nn = net(X_test_second_level_torch) # activation of final note, i.e. prediction of network
+            y_test_est = (y_test_est_inner_nn > .5).type(dtype=torch.uint8) # threshold output of sigmoidal function
+            y_test = y_test_est_inner_nn.type(dtype=torch.uint8)
+            # Determine errors and error rate
+            e = (y_test_est != y_test)
+            error_rate_nn = (sum(e).type(torch.float)/len(y_test)).data.numpy()
+            # We save the final loss for the model with this hidden level
+
+            test_error_rate_nn[j] = error_rate_nn    
+
         opt_hidden_layer_idx = np.argmin(test_error_rate_nn)
         opt_hidden_layer = n_hidden_units_interval[opt_hidden_layer_idx]
         first_level_opt_hidden_layer[idx] = opt_hidden_layer
@@ -412,6 +419,7 @@ for train_index1, test_index1 in CV.split(X,y):
             # 1st transfer function, either Tanh or ReLU:
             torch.nn.Tanh(),                            #torch.nn.ReLU(),
             torch.nn.Linear(n_hidden_units_interval[opt_hidden_layer_idx], 1), # H hidden units to 1 output neuron
+            torch.nn.Sigmoid()
             )
 
     net, final_loss_outer, best_learning_curve = train_neural_custom(nn_model_outer,
@@ -421,32 +429,40 @@ for train_index1, test_index1 in CV.split(X,y):
                                                     num_epoch=num_epoch)
     print('\n\tBest loss: {} for outer level cross validation: {}\n'.format(final_loss_outer,idx))
 
-    y_test_est_outer_nn = net(X_test_first_level_torch)
-
-    # Determine errors and errors
-    se = (y_test_est_outer_nn.float()-y_test_second_level_torch.float())**2 # squared error
-    mse = (sum(se).type(torch.float)/len(y_test_second_level_torch)).data.numpy() #mean
+    # Determine estimated class labels for test set
+    y_test_est_outer_nn = net(X_test_first_level_torch) # activation of final note, i.e. prediction of network
+    y_test_est = (y_test_est_outer_nn > .5).type(dtype=torch.uint8) # threshold output of sigmoidal function
+    y_test = y_test_est_outer_nn.type(dtype=torch.uint8)
+    # Determine errors and error rate
+    e = (y_test_est != y_test)
+    error_rate = (sum(e).type(torch.float)/len(y_test)).data.numpy()
     # We save the final loss for the model with this hidden level
 
-    overall_test_errors_nn[idx] = np.mean(mse)
+    overall_test_errors_nn[idx] = error_rate
 
-    # LINEAR MODEL
-    # We will use the optimal lambda we just found to model the LinearRegression Model
-    opt_mdl_linear = Ridge(alpha=opt_lambda )
-    opt_mdl_linear.fit(X_train_first_level, y_train_first_level)
-    y_train_est_outer = opt_mdl_linear.predict(X_train_first_level).T
-    y_test_est_outer = opt_mdl_linear.predict(X_test_first_level).T
+    # LOGISTIC MODEL
+    # We will use the optimal lambda we just found to model the LogisticRegression Model
+    opt_mdl_logistic = LogisticRegression(penalty='l2', C=1/opt_lambda )
+    opt_mdl_logistic.fit(X_train_first_level, y_train_first_level)
+    y_train_est_outer = opt_mdl_logistic.predict(X_train_first_level).T
+    y_test_est_outer = opt_mdl_logistic.predict(X_test_first_level).T
     # Add the test_error_rate to the overall test_error_rate so we can calculate the generalisation error in the end.
-    err_linear = mean_squared_error(y_test_est_outer, y_test_first_level)
-    overall_test_errors_linear[idx] = mean_squared_error(y_test_est_outer, y_test_first_level)
+    err_logistic = np.sum(y_test_est_outer != y_test_first_level) / len(y_test_est_outer)
+    overall_test_errors_logistic[idx] = err_logistic
 
-    # BASELINE MDOEL
-    y_pred = [np.mean(y_train_first_level)]*len(y_test_first_level)
-    mse_baseline = mean_squared_error(y_pred, y_test_first_level)
+    # BASELINE MODEL
+    y_pred = [1]*len(y_test_first_level)
+    mse_baseline = np.sum(y_pred != y_test_first_level) / len(y_pred)
     overall_test_errors_baseline[idx] = mse_baseline
 
-    results_df.loc[idx-1] = [idx] + [opt_hidden_layer] + [round(np.mean(mse),3)] + [round(opt_lambda,3)] + [round(err_linear,3)] + [round(mse_baseline,3)]
+    results_df.loc[idx-1] = [idx] + [opt_hidden_layer] + [round(np.mean(error_rate_nn),3)] + [round(opt_lambda,3)] + [round(err_logistic,3)] + [round(mse_baseline,3)]
 
+    r_nn_vs_baseline = abs(np.mean(error_rate_nn-mse_baseline))
+    r_nn_vs_logistic = abs(np.mean(error_rate_nn-err_logistic))
+    r_baseline_vs_logistic = abs(np.mean(mse_baseline-err_logistic))
+
+
+    stats_df.loc[idx-1] = [idx] + [round(r_nn_vs_baseline,3)] + [round(r_nn_vs_logistic,3)] + [round(r_baseline_vs_logistic,3)]
 
 #############################################
 #             COMPARE MODELS                #
@@ -454,20 +470,20 @@ for train_index1, test_index1 in CV.split(X,y):
 
 z_baseline = np.asarray(list(overall_test_errors_baseline.values()))
 z_neural_net = np.asarray(list(overall_test_errors_nn.values()))
-z_linear = np.asarray(list(overall_test_errors_linear.values()))
+z_logistic = np.asarray(list(overall_test_errors_logistic.values()))
     
-z1 = abs(z_neural_net - z_linear)
+z1 = abs(z_neural_net - z_logistic)
 z2 = abs(z_neural_net - z_baseline)
-z3 = abs(z_linear - z_baseline)
+z3 = abs(z_logistic - z_baseline)
 
 conf_z1 = st.t.interval(alpha=0.95, df=len(z1)-1, loc=np.mean(z1), scale=st.sem(z1))
-conf_z2 = st.t.interval(alpha=0.95, df=len(z2)-1, loc=np.mean(z2), scale=st.sem(z2)) 
-conf_z3 = st.t.interval(alpha=0.95, df=len(z3)-1, loc=np.mean(z3), scale=st.sem(z3)) 
+conf_z2 = st.t.interval(alpha=0.95, df=len(z2)-1, loc=np.mean(z2), scale=st.sem(z2))
+conf_z3 = st.t.interval(alpha=0.95, df=len(z3)-1, loc=np.mean(z3), scale=st.sem(z3))
 
 print("="*25)
-print(f"z1 confidence interval: {conf_z1}, p-value: {2*st.t.cdf(-np.abs(np.mean(z1)) / st.sem(z1), df=len(z1) - 1)}")
-print(f"z2 confidence interval: {conf_z2}, p-value: {2*st.t.cdf(-np.abs(np.mean(z2)) / st.sem(z2), df=len(z2) - 1)}")
-print(f"z3 confidence interval: {conf_z3}, p-value: {2*st.t.cdf(-np.abs(np.mean(z3)) / st.sem(z3), df=len(z3) - 1)}")
+print(f"z1 confidence interval: {conf_z1}, p-value: {np.mean(2*st.t.cdf(-np.abs(np.mean(z1)) / st.sem(z1), df=len(z1) - 1))}")
+print(f"z2 confidence interval: {conf_z2}, p-value: {np.mean(2*st.t.cdf(-np.abs(np.mean(z2)) / st.sem(z2), df=len(z2) - 1))}")
+print(f"z3 confidence interval: {conf_z3}, p-value: {np.mean(2*st.t.cdf(-np.abs(np.mean(z3)) / st.sem(z3), df=len(z3) - 1))}")
 print("="*25)
 print()
 
@@ -480,17 +496,17 @@ print(results_df.to_latex(index=False))
 plt.bar(np.arange(1, K+1), np.squeeze(np.asarray(list(overall_test_errors_nn.values()))), color=color_list)
 plt.xlabel('Fold')
 plt.xticks(np.arange(1, K+1))
-plt.ylabel('MSE')
-plt.title('Test mean-squared-error for the Neural Net')
+plt.ylabel('Mean Error Rate')
+plt.title('Test Mean Error Rate for the Neural Net')
 
 plt.show()
 
-# Display the MSE across folds Linear
-plt.bar(np.arange(1, K+1), np.squeeze(np.asarray(list(overall_test_errors_linear.values()))), color=color_list)
+# Display the MSE across folds Logistic
+plt.bar(np.arange(1, K+1), np.squeeze(np.asarray(list(overall_test_errors_logistic.values()))), color=color_list)
 plt.xlabel('Fold')
 plt.xticks(np.arange(1, K+1))
-plt.ylabel('MSE')
-plt.title('Test mean-squared-error for the Linear model')
+plt.ylabel('Test Error Rate')
+plt.title('Test Test Error Rate for the Logistic model')
 
 plt.show()
 
@@ -498,8 +514,8 @@ plt.show()
 plt.bar(np.arange(1, K+1), np.squeeze(np.asarray(list(overall_test_errors_baseline.values()))), color=color_list)
 plt.xlabel('Fold')
 plt.xticks(np.arange(1, K+1))
-plt.ylabel('MSE')
-plt.title('Test mean-squared-error for the Baseline model')
+plt.ylabel('Test Error Rate')
+plt.title('Test Test Error Rate for the Baseline model')
 
 plt.show()
 
@@ -527,13 +543,31 @@ print()
 print("Max Count Hidden Layer Amount:")
 print(f"{max(overall_hidden_layers,key=overall_hidden_layers.count)}")
 print()
-mean_overall_error_linear = sum(overall_test_errors_linear.values()) / len(overall_test_errors_linear.values())
+mean_overall_error_logistic = sum(overall_test_errors_logistic.values()) / len(overall_test_errors_logistic.values())
 mean_overall_test_errors_nn = sum(overall_test_errors_nn.values()) / len(overall_test_errors_nn.values())
 mean_overall_error_baseline = sum(overall_test_errors_baseline.values()) / len(overall_test_errors_baseline.values())
 
-print(f"Mean Overall Error (Generalisation Error) for LinearRegression Model: {mean_overall_error_linear}")
-print(f"Mean Overall Error (Generalisation Error) for Neural Network Model: {mean_overall_test_errors_nn}")
+print(f"Mean Overall Error (Generalisation Error) for LogisticRegression Model: {mean_overall_error_logistic}")
+print(f"Mean Overall Error (Generalisation Error) for Neural Network Model: {np.mean(mean_overall_test_errors_nn)}")
 print(f"Mean Overall Error (Generalisation Error) for Baseline Model: {mean_overall_error_baseline}")
 print("-"*25 + " Ended " + "-"*25)
+
+print("Stats Table:")
+print(stats_df.to_latex(index=False))
+
+conf_z1 = st.t.interval(alpha=0.95, df=len(stats_df["ANN vs Baseline"])-1, loc=np.mean(stats_df["ANN vs Baseline"]), scale=st.sem(stats_df["ANN vs Baseline"]))
+conf_z2 = st.t.interval(alpha=0.95, df=len(stats_df["ANN vs Logistic"])-1, loc=np.mean(stats_df["ANN vs Logistic"]), scale=st.sem(stats_df["ANN vs Logistic"]))
+conf_z3 = st.t.interval(alpha=0.95, df=len(stats_df["Baseline vs Logistic"])-1, loc=np.mean(stats_df["Baseline vs Logistic"]), scale=st.sem(stats_df["Baseline vs Logistic"]))
+
+z1 = stats_df["ANN vs Baseline"]
+z2 = stats_df["ANN vs Logistic"]
+z3 = stats_df["Baseline vs Logistic"]
+
+print("="*25)
+print(f"z1 confidence interval: {conf_z1}, p-value: {np.mean(2*st.t.cdf(-np.abs(np.mean(z1)) / st.sem(z1), df=len(z1) - 1))}")
+print(f"z2 confidence interval: {conf_z2}, p-value: {np.mean(2*st.t.cdf(-np.abs(np.mean(z2)) / st.sem(z2), df=len(z2) - 1))}")
+print(f"z3 confidence interval: {conf_z3}, p-value: {np.mean(2*st.t.cdf(-np.abs(np.mean(z3)) / st.sem(z3), df=len(z3) - 1))}")
+print("="*25)
+print()
 
 plt.show()

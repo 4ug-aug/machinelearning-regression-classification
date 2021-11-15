@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
 from sklearn import model_selection
 from init import import_dataset
+import pandas as pd
 
 import collections
 
@@ -86,11 +87,13 @@ for train_index, test_index in CV.split(X,y):
     # Fit new model based on the original test split / partition by the K-fold.
     # We will use the optimal lambda we just found.
     mdl_original = LogisticRegression(penalty='l2', C=1/opt_lambda )
-    mdl.fit(X_train_outer, y_train_outer)
-    y_train_est_outer = mdl.predict(X_train_outer).T
-    y_test_est_outer = mdl.predict(X_test_outer).T
+    mdl_original.fit(X_train_outer, y_train_outer)
+    y_train_est_outer = mdl_original.predict(X_train_outer).T
+    y_test_est_outer = mdl_original.predict(X_test_outer).T
     # Add the test_error_rate to the overall test_error_rate so we can calculate the generalisation error in the end.
     overall_test_errors[opt_lambda] = np.sum(y_test_est != y_test_inner) / len(y_test_inner)
+
+    print(f"Weights: {mdl_original.coef_}")
 
     predictions.append(y_test_est_outer.tolist())
 

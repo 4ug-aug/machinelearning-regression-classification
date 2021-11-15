@@ -90,11 +90,13 @@ for train_index, test_index in CV.split(X,y):
 
     predictions.append(y_test_est_outer.tolist())
 
+    print(f"Weights: {mdl_original.coef_}")
+
     if idx == K-1:
         plt.title('Optimal lambda: 1e{0}'.format(opt_lambda))
         plt.loglog(lambda_interval,train_error_rate,'b.-',lambda_interval,test_error_rate,'r.-')
         plt.xlabel('Regularization factor')
-        plt.ylabel('Squared error (crossvalidation)')
+        plt.ylabel('Mean Squared error (crossvalidation)')
         plt.legend(['Train error','Validation error'])
         plt.grid()
         plt.show()
