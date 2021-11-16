@@ -9,4 +9,4 @@ The data  set  of  the  world  happiness  scores,  used  in  the  2016  world  h
 The "init.py" function loads a dataset and adds the binary attribute "Happy" used in classification. Run either "regression_part_2.py" or "classification_part_2.py" to get statistics and plots for the 3 machine learning models.
 
 ## Collab
-Created in collaboration with [Smilla Due](https://github.com/SmillaDue) as a part of the DTU Course * 02450 Introduction to Machine Learning and Data Mining Fall 21 *
+Created in collaboration with [Smilla Due](https://github.com/SmillaDue) as a part of the DTU Course **02450 Introduction to Machine Learning and Data Mining Fall 21**
