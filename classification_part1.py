@@ -457,9 +457,9 @@ for train_index1, test_index1 in CV.split(X,y):
 
     results_df.loc[idx-1] = [idx] + [opt_hidden_layer] + [round(np.mean(error_rate_nn),3)] + [round(opt_lambda,3)] + [round(err_logistic,3)] + [round(mse_baseline,3)]
 
-    r_nn_vs_baseline = abs(np.mean(error_rate_nn-mse_baseline))
-    r_nn_vs_logistic = abs(np.mean(error_rate_nn-err_logistic))
-    r_baseline_vs_logistic = abs(np.mean(mse_baseline-err_logistic))
+    r_nn_vs_baseline = np.mean(error_rate_nn-mse_baseline)
+    r_nn_vs_logistic = np.mean(error_rate_nn-err_logistic)
+    r_baseline_vs_logistic = np.mean(mse_baseline-err_logistic)
 
 
     stats_df.loc[idx-1] = [idx] + [round(r_nn_vs_baseline,3)] + [round(r_nn_vs_logistic,3)] + [round(r_baseline_vs_logistic,3)]
