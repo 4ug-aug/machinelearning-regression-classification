@@ -1,4 +1,4 @@
-# MachineLearning-Project-2
+# MachineLearning - Regression and Classification on 2016 World Happiness
 
 ## Introduction 
 
