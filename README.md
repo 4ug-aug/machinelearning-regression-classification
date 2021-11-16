@@ -7,6 +7,8 @@ Where we prior focused on 4 key attributes we will now take all 7 attributes int
 
 ## Usage
 
+$ pip install requirements.txt
+
 The "init.py" function loads a dataset and adds the binary attribute "Happy" used in classification. Run either "regression_part_2.py" or "classification_part_1.py" to get statistics and plots for the 3 machine learning models.
 
 ## Collab
